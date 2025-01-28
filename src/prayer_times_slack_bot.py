@@ -223,7 +223,7 @@ def parse_prayer_times(api_response):
         naive_time = datetime.strptime(api_time_string, "%H:%M")
         naive_datetime = get_naive_datetime_for_time(naive_time)
         #added one hour for daylight saving
-        return to_target_timezone(naive_datetime + timedelta(hours=1))
+        return to_target_timezone(naive_datetime - timedelta(hours=1))
 
     timings = api_response["timings"]
     prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]  # Sorted prayers
