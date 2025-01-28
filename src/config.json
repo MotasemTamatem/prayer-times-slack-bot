@@ -1,5 +1,5 @@
 {
-    "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/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",
+    "SLACK_WEBHOOK_URL": os.getenv("SLACK_WEBHOOK_URL"),
     "COUNTRY": "Jordan",
     "CITY": "Amman"
 }
