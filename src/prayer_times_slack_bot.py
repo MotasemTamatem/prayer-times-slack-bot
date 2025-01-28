@@ -22,7 +22,8 @@ import sys
 import pytz
 import time
 import random
-# Used for translating times across timezones.
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 from pytz import timezone
 from iso3166 import countries
 from datetime import datetime, timedelta
@@ -32,8 +33,38 @@ API_URL = "https://api.aladhan.com/v1/timingsByCity"
 
 SLACK_BOT_EMOJI = ":mosque:"  # Emoji of the bot (replaces the user icon)
 SLACK_BOT_USER_NAME = "Prayer Times"  # Display name of the bot.
-scheduler = sched.scheduler()
+scheduler = sched.scheduler(time.time, time.sleep)
 
+# Minimal HTTP server to keep Render happy
+class SimpleServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Prayer Times Bot is running!")
+
+def run_server():
+    server = HTTPServer(('0.0.0.0', 10000), SimpleServer)
+    print("HTTP server running on port 10000")
+    server.serve_forever()
+
+# Start the HTTP server in a separate thread
+server_thread = Thread(target=run_server)
+server_thread.daemon = True
+server_thread.start()
+
+# Load environment variables
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+CITY = os.getenv("CITY", "Amman")  # Default to Amman if not set
+COUNTRY = os.getenv("COUNTRY", "Jordan")  # Default to Jordan if not set
+
+# Get the iso3166 country code.
+COUNTRY_CODE = countries.get(COUNTRY).alpha2
+
+# If this doesn't work for your country (your country has multiple timezones)
+# use countries.get(YOUR_REGION_ISO3166_CODE), by default the code uses the first
+# available timezone name
+COUNTRY_TIMEZONE_NAME = pytz.country_timezones[COUNTRY_CODE][0]
+country_locale = timezone(COUNTRY_TIMEZONE_NAME)
 
 def to_target_timezone(time_object: datetime):
     """
@@ -45,18 +76,14 @@ def to_target_timezone(time_object: datetime):
 
     return time_object.astimezone(country_locale)
 
-
 def target_timezone_now():
     return to_target_timezone(datetime.now())
-
 
 def to_formatted_date_str(datetime_object: datetime):
     return datetime_object.strftime("%d-%m-%Y")
 
-
 def to_formatted_time_str(datetime_object: datetime):
     return datetime_object.strftime("%I:%M %p")
-
 
 def en_to_ar_num(number_string: str):
     """Translates an English language number to an Arabic language number."""
@@ -75,10 +102,8 @@ def en_to_ar_num(number_string: str):
 
     return "".join([dic[char] for char in number_string])
 
-
 def seconds_to_hours_minutes(seconds: int):
     return time.strftime("%H:%M", time.gmtime(seconds))
-
 
 class PrayerInfo:
     def __init__(self, ar_name: str, en_name: str, target_datetime: datetime):
@@ -122,26 +147,22 @@ class PrayerInfo:
     def __str__(self):
         return self.__repr__()
 
-
 def seconds_until_midnight(minute_offset):
     """
     Get the number of seconds until midnight.
     The API is called each midnight to get next
     day's prayer times.
     """
-    # source: http://jacobbridges.github.io/post/how-many-seconds-until-midnight/
     tomorrow = target_timezone_now() + timedelta(days=1)
     midnight = datetime(year=tomorrow.year, month=tomorrow.month,
                         day=tomorrow.day, hour=0, minute=minute_offset, second=0)
     midnight = to_target_timezone(midnight)
     return (midnight - target_timezone_now()).total_seconds()
 
-
 def next_prayer_offset(next_paryer_time: datetime):
     """Computes the time to the next prayer in seconds."""
     today = target_timezone_now()
     return (next_paryer_time - today).total_seconds()
-
 
 def parse_date(api_response):
     """Extracts Hijri date from API response in Arabic."""
@@ -152,14 +173,10 @@ def parse_date(api_response):
 
     return f"{en_to_ar_num(day)} من {month} {en_to_ar_num(year)}"
 
-
 def pretty_now():
     """Return the date now in a pretty format for logging."""
-    # Converts the date to a string because this function
-    # is always used in call site.
     target_now = target_timezone_now().replace(microsecond=0)
     return target_now.strftime("%d-%m-%Y %I:%M %p")
-
 
 def compose_prayer_time_notification_message(date, prayer_info: PrayerInfo):
     """Format the prayer time notification message to be posted to slack."""
@@ -168,7 +185,6 @@ def compose_prayer_time_notification_message(date, prayer_info: PrayerInfo):
     p = f"صلاة {prayer_info.ar_name()} ({prayer_info.ar_time()})"
     return f"{p} {s}\n\n{date}\n{tag_for_ppl_online}"
 
-
 def compose_prayer_time_out_message():
     """Format the prayer time warning message to be posted to slack."""
     s = "اللهم صلي و سلم على نبينا محمد"
@@ -176,24 +192,20 @@ def compose_prayer_time_out_message():
     p = "وقت هذه الصلاة قارب على الانتهاء"
     return f":warning: {p} {s}\n\n{tag_for_ppl_online}"
 
-
 def move_to_next_prayer(day_prayers):
     """
     Removes the next prayer from the list
     and returns its information and
     seconds remaining till its time.
     """
-
     next_prayer_info = day_prayers.pop(0)
     next_offset = next_prayer_offset(next_prayer_info.target_datetime)
     return next_prayer_info, next_offset
-
 
 def parse_prayer_times(api_response):
     """
     Extracts prayer times from raw API response
     as a list of tuples (<prayer_name_en>,<time_en>),
-
     returns PrayerInfo objects.
     """
     def get_naive_datetime_for_time(time: datetime):
@@ -207,7 +219,6 @@ def parse_prayer_times(api_response):
 
     timings = api_response["timings"]
     prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]  # Sorted prayers
-    # Transalate prayer names to Arabic.
     arabic_prayer_names = {"Fajr": "الفجر", "Dhuhr": "الظهر",
                            "Asr": "العصر", "Maghrib": "المغرب", "Isha": "العشاء"}
 
@@ -220,28 +231,14 @@ def parse_prayer_times(api_response):
 
     return prayer_times
 
-
 def call_prayer_api(method=5):
     """Retrieves prayer time information from the API using the given method."""
-    # 3 - Muslim World League
-    # 4 - Umm Al-Qura University, Makkah
-    # 5 - Egyptian General Authority of Survey
-    # 9 - Kuwait
-    # 10 - Qatar
-    # 11 - Majlis Ugama Islam Singapura, Singapore
-    # 12 - Union Organization islamic de France
-    # 13 - Diyanet İşleri Başkanlığı, Turkey
-    # 14 - Spiritual Administration of Muslims of Russia
-
-    # Example request (the space will be encoded by Python)
-    # http://api.aladhan.com/v1/timingsByCity?city=mecca&country=Saudi Arabia&method=5
     params = {"city": CITY, "country": COUNTRY, "method": method}
     r = requests.get(url=API_URL, params=params)
     assert r.status_code == 200, f"Request failed, got:\n\n{r.text}"
 
     data = r.json()
     return data["data"]
-
 
 def post_to_slack(message=None):
     """Posts a given message to slack, if the message is empty a "test" message is posted."""
@@ -251,7 +248,6 @@ def post_to_slack(message=None):
         message = "test"
 
     payload = {
-        # "channel": SLACK_CHANNEL_NAME,
         "username": SLACK_BOT_USER_NAME,
         "text": message,
         "icon_emoji": SLACK_BOT_EMOJI
@@ -262,7 +258,6 @@ def post_to_slack(message=None):
     r = requests.post(url=SLACK_WEBHOOK_URL, data=payload_json)
     if r.status_code != 200:
         print(f"Request failed, got:\n\n{r.text}", file=sys.stderr)
-
 
 def schedule_next_prayer(next_prayer_info, date, next_offset):
     """Post a message announcing the next prayer's time."""
@@ -278,7 +273,6 @@ def schedule_next_prayer(next_prayer_info, date, next_offset):
     # Notify at the next prayer's time.
     scheduler.enter(next_offset, 1, post_to_slack, argument=(message,))
 
-
 def schedule_prayer_time_out_warning(next_offset):
     """Post a message before the next prayer's time."""
     message = compose_prayer_time_out_message()
@@ -291,7 +285,6 @@ def schedule_prayer_time_out_warning(next_offset):
     scheduler.enter(alert_after,
                     1, post_to_slack, argument=(message,))
 
-
 def schedule_next_update(next_offset, date, day_prayers):
     """Schedule the next update task."""
     print(f"[schedule_next_update] ({pretty_now()})")
@@ -299,7 +292,6 @@ def schedule_next_update(next_offset, date, day_prayers):
     thresh = 60  # 60 Seconds.
     scheduler.enter(next_offset + thresh, 1, run_scheduler,
                     argument=(date, day_prayers,))
-
 
 def run_scheduler(date, day_prayers):
     """
@@ -337,13 +329,11 @@ def run_scheduler(date, day_prayers):
         # Fetch the prayer after the next prayer time has come.
         schedule_next_update(next_offset, date, day_prayers)
 
-
 def schedule_daily_task():
     """
     Calls the API to fetch prayer times of this day,
     then starts the prayer notification schedule.
     """
-
     print("\n\n[schedule_daily_task]",
           f"({pretty_now()}) Loading new day...\n", file=sys.stderr)
 
@@ -352,7 +342,6 @@ def schedule_daily_task():
     date = parse_date(api_response)
 
     run_scheduler(date, prayer_times)
-
 
 def main():
     # If you want to send a test message
@@ -366,26 +355,23 @@ def main():
     scheduler.run()
     exit(0)
 
-
 if __name__ == "__main__":
     if sys.version_info[0] < 3 or sys.version_info[1] < 3:
         print("This script requires at least Python version 3", file=sys.stderr)
         sys.exit(1)
 
-    CONFIG = json.load(
-        open(os.path.join(os.path.dirname(__file__), "config.json"))
-    )
-
-    CITY = "Amman"
-    COUNTRY = "Jordan"
+    # Load environment variables
     SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-    assert CITY and COUNTRY and SLACK_WEBHOOK_URL, "A required variable is missing, please fix your .env file"
+    CITY = os.getenv("CITY", "Amman")  # Default to Amman if not set
+    COUNTRY = os.getenv("COUNTRY", "Jordan")  # Default to Jordan if not set
+
+    assert SLACK_WEBHOOK_URL, "SLACK_WEBHOOK_URL environment variable is missing"
 
     # Get the iso3166 country code.
     COUNTRY_CODE = countries.get(COUNTRY).alpha2
 
     # If this doesn't work for your country (your country has multiple timezones)
-    # use countries.get(YOUR_REGION_ISO3166_CODE), be default the code uses the first
+    # use countries.get(YOUR_REGION_ISO3166_CODE), by default the code uses the first
     # available timezone name
     COUNTRY_TIMEZONE_NAME = pytz.country_timezones[COUNTRY_CODE][0]
     country_locale = timezone(COUNTRY_TIMEZONE_NAME)
