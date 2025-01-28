@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 API_URL = "https://api.aladhan.com/v1/timingsByCity"
 
 SLACK_BOT_EMOJI = ":mosque:"  # Emoji of the bot (replaces the user icon)
-SLACK_BOT_USER_NAME = "Prayer Times"  # Display name of the bot.
+SLACK_BOT_USER_NAME = "Tamatem Pray Bot"  # Display name of the bot.
 scheduler = sched.scheduler(time.time, time.sleep)
 
 # Minimal HTTP server to keep Render happy
@@ -41,6 +41,13 @@ class SimpleServer(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Prayer Times Bot is running!")
+
+    def do_HEAD(self):
+        # Handle HEAD requests (used by health checks)
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Prayer Times Bot is running!")
+        print("Head port has been checked")
 
 def run_server():
     server = HTTPServer(('0.0.0.0', 10000), SimpleServer)
