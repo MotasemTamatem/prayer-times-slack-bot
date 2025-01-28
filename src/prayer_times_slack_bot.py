@@ -376,9 +376,9 @@ if __name__ == "__main__":
         open(os.path.join(os.path.dirname(__file__), "config.json"))
     )
 
-    CITY = CONFIG["CITY"]
-    COUNTRY = CONFIG["COUNTRY"]
-    SLACK_WEBHOOK_URL = CONFIG["SLACK_WEBHOOK_URL"]
+    CITY = "Amman"
+    COUNTRY = "Jordan"
+    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
     assert CITY and COUNTRY and SLACK_WEBHOOK_URL, "A required variable is missing, please fix your .env file"
 
     # Get the iso3166 country code.
