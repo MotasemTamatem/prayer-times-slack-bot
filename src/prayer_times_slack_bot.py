@@ -260,7 +260,7 @@ def post_to_slack(message=None):
     payload = {
         "username": SLACK_BOT_USER_NAME,
         "text": message,
-        #"icon_emoji": SLACK_BOT_EMOJI
+        "icon_emoji": SLACK_BOT_EMOJI
     }
 
     payload_json = json.dumps(payload)
