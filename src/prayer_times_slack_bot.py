@@ -189,7 +189,9 @@ def compose_prayer_time_notification_message(date, prayer_info: PrayerInfo):
     """Format the prayer time notification message to be posted to slack."""
     s = "اللهم صلي و سلم على نبينا محمد"
     tag_for_ppl_online = "<!here>"
-    p = f"صلاة {prayer_info.ar_name()} ({prayer_info.ar_time()})"
+    adjusted_time = (prayer_info.target_datetime + timedelta(hours=1)).astimezone(country_locale)
+    adjusted_ar_time = PrayerInfo.ar_time(prayer_info.__class__("tmp", "tmp", adjusted_time))  
+    p = f"صلاة {prayer_info.ar_name()} ({adjusted_ar_time})"
     return f"{p} {s}\n\n{date}\n{tag_for_ppl_online}"
 
 def compose_prayer_time_out_message():
@@ -226,7 +228,7 @@ def parse_prayer_times(api_response):
         return to_target_timezone(naive_datetime - timedelta(hours=1))
 
     timings = api_response["timings"]
-    prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]  # Sorted prayers
+    prayers = ["Dhuhr", "Asr", "Maghrib"]  # Sorted prayers
     arabic_prayer_names = {"Fajr": "الفجر", "Dhuhr": "الظهر",
                            "Asr": "العصر", "Maghrib": "المغرب", "Isha": "العشاء"}
 
@@ -258,7 +260,7 @@ def post_to_slack(message=None):
     payload = {
         "username": SLACK_BOT_USER_NAME,
         "text": message,
-        "icon_emoji": SLACK_BOT_EMOJI
+        #"icon_emoji": SLACK_BOT_EMOJI
     }
 
     payload_json = json.dumps(payload)
